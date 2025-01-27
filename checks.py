@@ -45,7 +45,7 @@ def check_policy(scan):
     Check the policy of the scan.
     """
     policy_name = scan.get("policy_name")
-    if policy_name == "AT&T Gateway Default":
+    if policy_name == "ORG Gateway Default":
         return "PASSED", policy_name
     return "FAILED", policy_name
 
