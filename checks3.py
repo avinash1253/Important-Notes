@@ -33,6 +33,7 @@ def get_application_by_name(application_name, auth):
         for app in apps:
             if app["profile"]["name"] == application_name:
                 return app
+    print(f"Error: Application '{application_name}' not found.")
     return None
 
 # Get sandboxes for an application
@@ -44,6 +45,7 @@ def get_sandbox_by_name(application_id, sandbox_name, auth):
         for sandbox in sandboxes:
             if sandbox["name"] == sandbox_name:
                 return sandbox
+    print(f"Error: Sandbox '{sandbox_name}' not found.")
     return None
 
 # Get scans for a sandbox
@@ -52,6 +54,7 @@ def get_scans_for_sandbox(application_id, sandbox_id, auth):
     response = requests.get(url, auth=auth)
     if response.status_code == 200:
         return response.json().get("_embedded", {}).get("scans", [])
+    print(f"Error: No scans found for sandbox '{sandbox_id}'.")
     return []
 
 # Check if a scan is promoted
@@ -61,6 +64,10 @@ def is_scan_promoted(application_id, scan_id, auth):
     if response.status_code == 200:
         scan_details = response.json()
         return scan_details.get("lifecycle_stage") == "promoted"
+    elif response.status_code == 404:
+        print(f"Error: Scan with ID '{scan_id}' not found.")
+    else:
+        print(f"Error: Unable to retrieve scan details. HTTP {response.status_code}: {response.text}")
     return False
 
 def main():
@@ -80,19 +87,16 @@ def main():
     # Step 1: Check if the application exists
     application = get_application_by_name(application_name, auth)
     if not application:
-        print(f"Application '{application_name}' does not exist.")
         return
 
     # Step 2: Check if the sandbox exists
     sandbox = get_sandbox_by_name(application["guid"], scan_name, auth)
     if not sandbox:
-        print(f"No sandbox found with name '{scan_name}'.")
         return
 
     # Step 3: Check if a scan exists in the sandbox
     scans = get_scans_for_sandbox(application["guid"], sandbox["guid"], auth)
     if not scans:
-        print(f"No scans found in sandbox '{scan_name}'.")
         return
 
     # Step 4: Check if the latest scan is promoted
