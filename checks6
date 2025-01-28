@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+
+import sys
+import re
+from veracode_api_py import Applications, Sandboxes, Findings, Scans  # Adjust imports as needed
+
+def main():
+    # ----------------------------------------------------------
+    # 1. Parse and validate arguments
+    # ----------------------------------------------------------
+    if len(sys.argv) < 2:
+        print("Usage: python check_veracode_scan.py <scan_name>")
+        sys.exit(1)
+    scan_name = sys.argv[1]
+
+    # Optional: Validate naming convention. Example: 12345-AVT-1Q2025-SCA
+    # This regex is a simplistic approach. Adapt as needed for your naming rules.
+    pattern = r"^\d+-AVT-\dQ\d{4}-SCA$"
+    if not re.match(pattern, scan_name):
+        print(f"[FAIL] Provided scan_name '{scan_name}' does not match the naming convention.")
+        sys.exit(1)
+    else:
+        print(f"[INFO] scan_name '{scan_name}' matches naming convention.")
+    
+    # ----------------------------------------------------------
+    # 2. Initialize trackers for pass/fail checks
+    # ----------------------------------------------------------
+    # We'll store the results of each check in a dictionary
+    checks = {
+        "application_exists": False,
+        "sandbox_exists": False,
+        "scan_in_sandbox": False,
+        "scan_completed": False,
+        "auto_scan_disabled": False,
+        "policy_check": False,
+        "fatal_errors_check": False,
+        "module_list_check": False,
+        "missing_files_warnings_check": False,
+        "new_findings_check": False,
+        "open_findings_check": False,
+        "false_positive_proposals_check": False,
+        "comments_check": False,
+        "is_sca_linked_check": False,
+        "last_promoted_scan_check": False
+    }
+
+    # ----------------------------------------------------------
+    # 3. Check if application "MOTSID-SCA-AVT" exists
+    # ----------------------------------------------------------
+    app_name = "MOTSID-SCA-AVT"
+    app = Applications().get_app_by_name(app_name)
+    if app:
+        checks["application_exists"] = True
+        print(f"[PASS] Application '{app_name}' exists.")
+        app_id = app["guid"]  # or "id", depending on which field veracode_api_py returns
+    else:
+        print(f"[FAIL] Application '{app_name}' does not exist.")
+        # If the application does not exist, we can proceed or exit, depending on your needs
+        sys.exit(1)
+
+    # ----------------------------------------------------------
+    # 4. Check if a sandbox with name == scan_name exists
+    # ----------------------------------------------------------
+    sbox = None
+    sandboxes = Sandboxes().get_sandboxes(app_id=app_id)
+    # sandboxes is typically a list of sandbox objects
+    for sandbox in sandboxes:
+        if sandbox["sandbox_name"] == scan_name:
+            sbox = sandbox
+            break
+
+    if sbox:
+        checks["sandbox_exists"] = True
+        print(f"[PASS] Sandbox '{scan_name}' exists.")
+        sandbox_id = sbox["sandbox_id"]  # or "guid"
+    else:
+        print(f"[FAIL] Sandbox '{scan_name}' not found.")
+        # Potentially exit if a sandbox is mandatory
+        sys.exit(1)
+
+    # ----------------------------------------------------------
+    # 5. Check if there is a scan in the matching sandbox
+    #    (and gather details for other checks)
+    # ----------------------------------------------------------
+    # veracode_api_py does not currently have a direct "get scans for a sandbox" in all versions;
+    # you may need to use e.g. Scans() or some other function. This is an example approach:
+    scan = None
+    existing_scans = Scans().get_scans(app_id=app_id, sandbox_id=sandbox_id)  # hypothetical usage
+    for sc in existing_scans:
+        # You might check if "sc['scan_name']" or "sc['analysis_name']" or similar matches
+        if sc.get("analysis_name", "") == scan_name:
+            scan = sc
+            break
+
+    if scan:
+        checks["scan_in_sandbox"] = True
+        print(f"[PASS] Found scan '{scan_name}' in sandbox '{scan_name}'.")
+    else:
+        print(f"[FAIL] No scan found within sandbox '{scan_name}'.")
+        sys.exit(1)
+
+    # ----------------------------------------------------------
+    # 6. Check if the scan is completed
+    # ----------------------------------------------------------
+    # Suppose the scan object has a status like scan["analysis_status"] which might be "SUCCESSFUL" or "COMPLETE".
+    if scan.get("analysis_status") in ["SUCCESSFUL", "COMPLETE"]:
+        checks["scan_completed"] = True
+        print("[PASS] The scan is in a completed state.")
+    else:
+        print(f"[FAIL] The scan status is '{scan.get('analysis_status')}', not completed.")
+
+    # ----------------------------------------------------------
+    # 7. Check if Auto-Scan is turned off
+    # ----------------------------------------------------------
+    # Some Veracode APIs use the term "auto_scan" or "schedule_scan". Adjust field names as needed.
+    if not scan.get("auto_scan", True):  # If `auto_scan` is False => PASS
+        checks["auto_scan_disabled"] = True
+        print("[PASS] Auto-scan option is turned off for this scan.")
+    else:
+        print("[FAIL] Auto-scan is still enabled for this scan.")
+
+    # ----------------------------------------------------------
+    # 8. Check the policy used (PASSED if it is "ORG Gateway Default", else FAIL with policy name)
+    # ----------------------------------------------------------
+    # Suppose there's a field like scan["policy"]["policy_name"]:
+    policy_name = scan.get("policy", {}).get("name", "Unknown Policy")
+    if policy_name == "ORG Gateway Default":
+        checks["policy_check"] = True
+        print("[PASS] Scan policy is 'ORG Gateway Default'.")
+    else:
+        print(f"[FAIL] Policy used is '{policy_name}' (expected 'ORG Gateway Default').")
+
+    # ----------------------------------------------------------
+    # 9. Check if scan has any fatal errors
+    # ----------------------------------------------------------
+    # Example: check a "fatal_errors" field in the scan or associated analysis unit
+    fatal_errors = scan.get("fatal_errors", [])
+    if fatal_errors:
+        print(f"[FAIL] Fatal errors detected: {fatal_errors}")
+    else:
+        checks["fatal_errors_check"] = True
+        print("[PASS] No fatal errors found in the scan.")
+
+    # ----------------------------------------------------------
+    # 10. Which modules are selected?
+    # ----------------------------------------------------------
+    # Typically, each 'module' might be part of scan["modules"]
+    selected_modules = scan.get("modules", [])
+    if selected_modules:
+        checks["module_list_check"] = True
+        module_names = [m["name"] for m in selected_modules if "name" in m]
+        print(f"[INFO] Modules selected: {module_names}")
+    else:
+        print("[FAIL] No modules found in this scan's configuration.")
+
+    # ----------------------------------------------------------
+    # 11. Compare modules with last promoted scan (for newly introduced modules)
+    # ----------------------------------------------------------
+    # For demonstration, let's assume "get_last_promoted_scan()" is a helper function you implement
+    last_promoted_scan = get_last_promoted_scan(app_id)  # Pseudocode
+    if last_promoted_scan:
+        checks["last_promoted_scan_check"] = True
+        print(f"[INFO] Last promoted scan ID: {last_promoted_scan.get('scan_id')}")
+        old_modules = {m["name"] for m in last_promoted_scan.get("modules", []) if "name" in m}
+        new_modules = set(module_names) - old_modules
+        if new_modules:
+            print(f"[INFO] Newly introduced modules: {new_modules}")
+        else:
+            print("[INFO] No newly introduced modules.")
+    else:
+        print("[WARN] Could not find last promoted scan to compare modules.")
+
+    # ----------------------------------------------------------
+    # 12. Count of missing files and warnings in selected modules
+    # ----------------------------------------------------------
+    missing_files_count = 0
+    warnings_count = 0
+    for m in selected_modules:
+        missing_files_count += len(m.get("missing_files", []))
+        warnings_count += len(m.get("warnings", []))
+
+    if missing_files_count == 0 and warnings_count == 0:
+        checks["missing_files_warnings_check"] = True
+        print("[PASS] No missing files or warnings in selected modules.")
+    else:
+        print(f"[INFO] Missing Files Count: {missing_files_count}, Warnings Count: {warnings_count}")
+
+    # ----------------------------------------------------------
+    # 13. Are there any new Critical/High/Medium findings?
+    # ----------------------------------------------------------
+    # Typically you’d use the Findings() API to list findings for this sandbox/scan.
+    # Then you'd look for only newly introduced findings since last scan or last promoted build.
+    # This is a high-level example:
+    new_crit = 0
+    new_high = 0
+    new_med = 0
+
+    # Hypothetical call: get_findings(app_id, sandbox_id, "NEW")
+    new_findings = Findings().get_findings(app_id=app_id, sandbox_id=sandbox_id, scan_id=scan.get("scan_id"))
+    # Filter by severity
+    for f in new_findings:
+        severity = f.get("severity")
+        if severity == "CRITICAL":
+            new_crit += 1
+        elif severity == "HIGH":
+            new_high += 1
+        elif severity == "MEDIUM":
+            new_med += 1
+
+    if new_crit or new_high or new_med:
+        print(f"[INFO] New Findings => Critical: {new_crit}, High: {new_high}, Medium: {new_med}")
+    else:
+        checks["new_findings_check"] = True
+        print("[PASS] No new critical/high/medium findings.")
+
+    # ----------------------------------------------------------
+    # 14. Are there any open Critical/High/Medium findings?
+    # ----------------------------------------------------------
+    open_crit = 0
+    open_high = 0
+    open_med = 0
+    # Possibly another filter for "open" findings
+    open_findings = Findings().get_findings(app_id=app_id, sandbox_id=sandbox_id, status="OPEN")
+    for f in open_findings:
+        severity = f.get("severity")
+        if severity == "CRITICAL":
+            open_crit += 1
+        elif severity == "HIGH":
+            open_high += 1
+        elif severity == "MEDIUM":
+            open_med += 1
+
+    if open_crit or open_high or open_med:
+        print(f"[INFO] Open Findings => Critical: {open_crit}, High: {open_high}, Medium: {open_med}")
+    else:
+        checks["open_findings_check"] = True
+        print("[PASS] No open critical/high/medium findings.")
+
+    # ----------------------------------------------------------
+    # 15. Are there any False Positive proposed findings?
+    # ----------------------------------------------------------
+    # You might look for any findings with "status == PROPOSED_FALSE_POSITIVE"
+    proposed_fps = []
+    for f in open_findings:
+        if f.get("finding_status") == "PROPOSED_FALSE_POSITIVE":
+            proposed_fps.append(f["issue_id"])
+
+    if proposed_fps:
+        print(f"[INFO] Proposed False Positives found. Count={len(proposed_fps)}, IDs={proposed_fps}")
+    else:
+        checks["false_positive_proposals_check"] = True
+        print("[PASS] No proposed false positive findings.")
+
+    # ----------------------------------------------------------
+    # 16. Do we have comments for all the Open, New, and Proposed findings?
+    # ----------------------------------------------------------
+    # You’d have to check the "comments" or "notes" field for each relevant finding.
+    # This is just a demonstration:
+    missing_comments = []
+    relevant_findings = new_findings + open_findings
+    for f in relevant_findings:
+        if not f.get("comments"):
+            missing_comments.append(f["issue_id"])
+
+    if missing_comments:
+        print(f"[FAIL] Some findings are missing comments: {missing_comments}")
+    else:
+        checks["comments_check"] = True
+        print("[PASS] All relevant findings have comments.")
+
+    # ----------------------------------------------------------
+    # 17. Is there any SCA linked with the Scan?
+    # ----------------------------------------------------------
+    # This check depends on how your org configures SAST + SCA combos. Possibly look for
+    # a field like scan["sca_enabled"] or a separate call for SCA “analysis_unit”.
+    if scan.get("sca_enabled"):
+        print("[INFO] SCA is linked with this scan.")
+    else:
+        checks["is_sca_linked_check"] = True
+        print("[PASS] No SCA analysis is linked to this scan.")
+
+    # ----------------------------------------------------------
+    # 18. Print final summary
+    # ----------------------------------------------------------
+    print("\n=== Summary of Checks ===")
+    for check_name, passed in checks.items():
+        status = "PASSED" if passed else "FAILED"
+        print(f"{check_name}: {status}")
+
+
+def get_last_promoted_scan(app_id):
+    """
+    Placeholder for logic to retrieve the last promoted scan for this app_id.
+    Return a dictionary representing the scan object or None if not found.
+    """
+    # Implementation depends on your build/promotion logic
+    return None
+
+
+if __name__ == "__main__":
+    main()
