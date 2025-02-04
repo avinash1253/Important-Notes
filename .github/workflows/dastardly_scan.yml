@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Dastardly Scan
-        uses: portswigger/dastardly-github-action@v1
+        uses: PortSwigger/dastardly-github-action@main
         with:
           target-url: "https://demo.testfire.net/"
           output-file: dastardly_output.log
