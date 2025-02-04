@@ -12,7 +12,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Run Dastardly scan
         run: |
@@ -31,11 +31,11 @@ jobs:
 
       - name: Convert Markdown to HTML
         run: |
-          sudo apt-get install -y pandoc
+          sudo apt-get update && sudo apt-get install -y pandoc
           pandoc dastardly_report.md -o dastardly_report.html
 
       - name: Upload HTML Report as Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dastardly_html_report
           path: dastardly_report.html
