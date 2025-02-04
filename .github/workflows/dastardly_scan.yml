@@ -1,4 +1,4 @@
-name: Dastardly Security Scan
+name: Limited Dastardly Security Scan
 
 on:
   push:
@@ -14,16 +14,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run Dastardly Scan
+      - name: Create Burp Configuration File (Limits Crawling)
+        run: |
+          cat <<EOF > burp-config.json
+          {
+            "target": {
+              "scope": {
+                "include": [
+                  {"rule": "https://demo.testfire.net/*"}
+                ],
+                "exclude": []
+              }
+            },
+            "crawl": {
+              "maxLinks": 10,  # Limit crawl to 10 URLs
+              "maxDuration": 120  # Optional: Stop scan after 5 minutes (300 sec)
+            }
+          }
+          EOF
+
+      - name: Run Dastardly Scan with Limited Crawling
         uses: PortSwigger/dastardly-github-action@main
         with:
           target-url: "https://demo.testfire.net/"
+          burp-config: "burp-config.json"
           output-file: dastardly_output.log
 
       - name: Convert Dastardly Output to Markdown
         run: |
           echo "# Dastardly Security Scan Report" > dastardly_report.md
-          echo "## Scan Results" >> dastardly_report.md
+          echo "## Scan Results (Limited to 10 URLs)" >> dastardly_report.md
           echo "\`\`\`" >> dastardly_report.md
           cat dastardly_output.log >> dastardly_report.md
           echo "\`\`\`" >> dastardly_report.md
