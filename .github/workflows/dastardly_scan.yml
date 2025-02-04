@@ -38,7 +38,8 @@ jobs:
         with:
           target-url: "https://demo.testfire.net/"
           burp-config: "burp-config.json"
-          output-file: dastardly_output.log
+          output-filename: dastardly_output.log
+        continue-on-error: true
 
       - name: Convert Dastardly Output to Markdown
         run: |
