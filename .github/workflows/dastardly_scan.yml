@@ -1,4 +1,4 @@
-name: Limited Dastardly Security Scan
+name: Dastardly Security Scan
 
 on:
   push:
@@ -11,50 +11,53 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Create Burp Configuration File (Limits Crawling)
-        run: |
-          cat <<EOF > burp-config.json
-          {
-            "target": {
-              "scope": {
-                "include": [
-                  {"rule": "https://demo.testfire.net/*"}
-                ],
-                "exclude": []
-              }
-            },
-            "crawl": {
-              "maxLinks": 10,  # Limit crawl to 10 URLs
-              "maxDuration": 120  # Optional: Stop scan after 5 minutes (300 sec)
-            }
-          }
-          EOF
 
       - name: Run Dastardly Scan with Limited Crawling
         uses: PortSwigger/dastardly-github-action@main
         with:
           target-url: "https://demo.testfire.net/"
-          burp-config: "burp-config.json"
           output-filename: dastardly_output.log
         continue-on-error: true
 
       - name: Convert Dastardly Output to Markdown
         run: |
           echo "# Dastardly Security Scan Report" > dastardly_report.md
-          echo "## Scan Results (Limited to 10 URLs)" >> dastardly_report.md
+          echo "## Scan Results" >> dastardly_report.md
           echo "\`\`\`" >> dastardly_report.md
           cat dastardly_output.log >> dastardly_report.md
           echo "\`\`\`" >> dastardly_report.md
 
-      - name: Convert Markdown to HTML
+      - name: Convert Markdown to Enhanced HTML Report
         run: |
           sudo apt-get update && sudo apt-get install -y pandoc
-          pandoc dastardly_report.md -o dastardly_report.html
+          cat <<EOF > report_style.css
+          body { font-family: Arial, sans-serif; margin: 20px; }
+          h1 { color: #2C3E50; text-align: center; }
+          .info { background-color: #D9EDF7; padding: 10px; margin: 5px 0; }
+          .low { background-color: #FCF8E3; padding: 10px; margin: 5px 0; }
+          .medium { background-color: #FAEBCC; padding: 10px; margin: 5px 0; }
+          .high { background-color: #F2DEDE; padding: 10px; margin: 5px 0; font-weight: bold; }
+          pre { background: #F4F4F4; padding: 10px; overflow: auto; }
+          EOF
+          
+          echo '<!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Dastardly Scan Report</title>
+            <link rel="stylesheet" href="report_style.css">
+          </head>
+          <body>
+          <h1>Dastardly Security Scan Report</h1>
+          <h2>Scan Results</h2>
+          <pre>' > dastardly_report.html
 
-      - name: Upload HTML Report as Artifact
+          cat dastardly_output.log | sed -E "s/(High)/<div class='high'>\1<\/div>/g; s/(Medium)/<div class='medium'>\1<\/div>/g; s/(Low)/<div class='low'>\1<\/div>/g; s/(INFO)/<div class='info'>\1<\/div>/g" >> dastardly_report.html
+
+          echo '</pre></body></html>' >> dastardly_report.html
+
+      - name: Upload Styled HTML Report as Artifact
         uses: actions/upload-artifact@v4
         with:
           name: dastardly_html_report
