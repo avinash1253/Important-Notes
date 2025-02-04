@@ -1,0 +1,45 @@
+name: Dastardly Security Scan
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  dastardly_scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Run Dastardly scan
+        run: |
+          mkdir -p dastardly_reports
+          docker run --rm \
+            -v "$(pwd)/dastardly_reports:/home/dastardly/reports" \
+            portswigger/dastardly -t https://demo.testfire.net/ | tee dastardly_output.log
+
+      - name: Convert Dastardly Output to Markdown
+        run: |
+          echo "# Dastardly Security Scan Report" > dastardly_report.md
+          echo "## Scan Results" >> dastardly_report.md
+          echo "\`\`\`" >> dastardly_report.md
+          cat dastardly_output.log >> dastardly_report.md
+          echo "\`\`\`" >> dastardly_report.md
+
+      - name: Convert Markdown to HTML
+        run: |
+          sudo apt-get install -y pandoc
+          pandoc dastardly_report.md -o dastardly_report.html
+
+      - name: Upload HTML Report as Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: dastardly_html_report
+          path: dastardly_report.html
+
+      - name: Provide Direct Download Link
+        run: |
+          echo "### 📥 [Download Dastardly Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts) 🚀" >> $GITHUB_STEP_SUMMARY
