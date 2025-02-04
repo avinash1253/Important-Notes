@@ -14,12 +14,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run Dastardly scan
-        run: |
-          mkdir -p dastardly_reports
-          docker run --rm \
-            -v "$(pwd)/dastardly_reports:/home/dastardly/reports" \
-            portswigger/dastardly -t https://demo.testfire.net/ | tee dastardly_output.log
+      - name: Run Dastardly Scan
+        uses: portswigger/dastardly-github-action@v1
+        with:
+          target-url: "https://demo.testfire.net/"
+          output-file: dastardly_output.log
 
       - name: Convert Dastardly Output to Markdown
         run: |
