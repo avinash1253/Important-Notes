@@ -1,2 +1,2 @@
 # Important-Notes
-Notes that helps for fellow members and security researchers
+Notes that helps for fellow members and security researchers.
