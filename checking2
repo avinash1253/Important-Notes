@@ -1,0 +1,90 @@
+from lxml import etree
+import pandas as pd
+
+# Load and parse the XML file
+xml_file = "veracode_report.xml"  # Update with actual file path
+tree = etree.parse(xml_file)
+root = tree.getroot()
+
+# Namespace Dictionary (Veracode XML uses namespaces)
+ns = {"ns": "https://www.veracode.com/schema/reports/export/1.0"}
+
+### Count Modules ###
+modules = root.xpath("//ns:modules/ns:module", namespaces=ns)
+total_modules = len(modules)
+print(f"Total Modules: {total_modules}")
+
+### Count Issues by Severity ###
+severity_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
+
+# Extract all flaws
+flaws = root.xpath("//ns:staticflaws/ns:flaw", namespaces=ns)
+
+# Count issues by severity level
+for flaw in flaws:
+    severity = int(flaw.get("severity"))
+    if severity == 5:
+        severity_counts["Critical"] += 1
+    elif severity == 4:
+        severity_counts["High"] += 1
+    elif severity == 3:
+        severity_counts["Medium"] += 1
+    elif severity == 2:
+        severity_counts["Low"] += 1
+
+print("\nIssue Severity Counts:")
+for severity, count in severity_counts.items():
+    print(f"  {severity}: {count}")
+
+### Count Issues with Comments ###
+issues_with_comments = 0
+
+for flaw in flaws:
+    annotations = flaw.xpath("./ns:annotations/ns:annotation", namespaces=ns)
+    if annotations:
+        issues_with_comments += 1
+
+print(f"\nIssues with Comments: {issues_with_comments}")
+
+### Count False Positives and Proposed Mitigations ###
+false_positives = []
+proposed_mitigations = []
+
+for flaw in flaws:
+    module_name = flaw.get("module")
+    flaw_id = flaw.get("issueid")
+
+    # Check for mitigation actions
+    mitigations = flaw.xpath("./ns:mitigations/ns:mitigation", namespaces=ns)
+    
+    for mitigation in mitigations:
+        action = mitigation.get("action")
+        if action == "Potential False Positive":
+            false_positives.append((flaw_id, module_name))
+        elif action == "Propose Mitigation":
+            proposed_mitigations.append((flaw_id, module_name))
+
+print(f"\nFalse Positives Count: {len(false_positives)}")
+print(f"Proposed Mitigations Count: {len(proposed_mitigations)}")
+
+### Show which Modules have False Positives ###
+fp_modules = {}
+for issue_id, module in false_positives:
+    if module not in fp_modules:
+        fp_modules[module] = 1
+    else:
+        fp_modules[module] += 1
+
+print("\nModules with False Positives:")
+for module, count in fp_modules.items():
+    print(f"  {module}: {count} False Positives")
+
+### Export Data to CSV for Further Analysis ###
+df = pd.DataFrame(flaws, columns=["issueid", "severity", "categoryname", "module"])
+df["false_positive"] = df["issueid"].apply(lambda x: "Yes" if x in [fp[0] for fp in false_positives] else "No")
+df["proposed_mitigation"] = df["issueid"].apply(lambda x: "Yes" if x in [pm[0] for pm in proposed_mitigations] else "No")
+
+# Save to CSV
+csv_filename = "veracode_issues_summary.csv"
+df.to_csv(csv_filename, index=False)
+print(f"\nData exported to {csv_filename}")
